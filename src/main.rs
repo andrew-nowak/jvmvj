@@ -1,3 +1,4 @@
+use std::env;
 use std::process::Command;
 
 use serde::Deserialize;
@@ -25,6 +26,26 @@ struct Jvm {
 }
 
 impl Jvm {
+    fn major_version(&self) -> u16 {
+        let version = self.version.clone();
+        let (major_version, rest) = version.split_once(".").expect(&format!(
+            "Version number {} of jvm {} should contain at least one period!",
+            self.version, self.home_path
+        ));
+
+        let major_version = match major_version {
+            "1" => rest.split_once(".").expect(&format!("Version number {} of jvm {} should contain at least two periods when 1-prefixed!", self.version, self.home_path)).0,
+            otherwise => otherwise
+        };
+
+        let major_version = major_version.parse::<u16>().expect(&format!(
+            "Major version number {} of JVM {} should be numeric!",
+            major_version, self.home_path
+        ));
+
+        major_version
+    }
+
     fn to_display(&self, i: usize) -> DisplayJvm {
         DisplayJvm {
             i,
@@ -55,6 +76,30 @@ fn list_all(jvms: &[Jvm]) {
     println!("{}", table);
 }
 
+fn get_version_from_input(spec: &str) -> Option<u16> {
+    match spec.split_once(".") {
+        Some(("1", ver)) => ver.parse::<u16>().ok(),
+        Some((ver, _)) => ver.parse::<u16>().ok(),
+        _ => spec.parse::<u16>().ok(),
+    }
+}
+
+fn switch_to(spec: &str, jvms: &[Jvm]) {
+    if let Some(v) = get_version_from_input(spec) {
+        let selection = jvms
+            .iter()
+            .find(|jvm| jvm.major_version() == v)
+            .expect(&format!(
+                "You requested a JVM of version {}, but no such JVM is installed!",
+                v
+            ));
+
+        println!("{}", selection.home_path);
+        eprintln!("Activating Java {}", selection.name);
+    } else {
+        panic!("Did not understand version spec {}", spec);
+    }
+}
 
 fn main() {
     let java_home_in = Command::new("/usr/libexec/java_home")
@@ -66,5 +111,10 @@ fn main() {
     let jvms: Vec<Jvm> = plist::from_bytes(&java_home_in)
         .expect("Failed to parse the list of JVMs. This should probably be raised as a bug!");
 
-    list_all(&jvms);
+    let args: Vec<String> = env::args().collect();
+
+    match args.get(1) {
+        None => list_all(&jvms),
+        Some(spec) => switch_to(spec, &jvms),
+    }
 }
