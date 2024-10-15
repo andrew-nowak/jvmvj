@@ -46,9 +46,8 @@ impl Jvm {
         major_version
     }
 
-    fn to_display(&self, i: usize) -> DisplayJvm {
+    fn to_display(&self) -> DisplayJvm {
         DisplayJvm {
-            i,
             arch: self.arch.clone(),
             name: self.name.clone(),
             version: self.version.clone(),
@@ -58,7 +57,6 @@ impl Jvm {
 
 #[derive(Tabled)]
 struct DisplayJvm {
-    i: usize,
     version: String,
     name: String,
     arch: String,
@@ -67,8 +65,7 @@ struct DisplayJvm {
 fn list_all(jvms: &[Jvm]) {
     let table = jvms
         .iter()
-        .enumerate()
-        .map(|(i, jvm)| jvm.to_display(i + 1))
+        .map(|jvm| jvm.to_display())
         .collect::<Vec<DisplayJvm>>();
 
     let table = Table::new(table).with(Style::rounded()).to_string();
