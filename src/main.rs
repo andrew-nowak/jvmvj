@@ -110,7 +110,7 @@ fn switch_to(spec: &str, jvms: &[Jvm], quiet: bool) {
             });
 
         println!("{}", selection.home_path);
-        if ! quiet
+        if !quiet
             || (old_java_home == None
                 || old_java_home != Some(selection.home_path.clone()))
         {
@@ -147,6 +147,33 @@ fn exit_with_err(msg: &str, quiet: bool) -> ! {
     }
 }
 
+fn display_zsh_init() {
+    let binr = env::current_exe().unwrap();
+    let bin = binr.display();
+    println!(
+        r#"
+jdk() {{
+    if [[ -n "$1" ]]; then
+        local located="$({bin} $1)"
+        if [[ -n "$located" ]]; then
+            export JAVA_HOME="$located"
+        fi
+    else
+        {bin}
+    fi
+}}
+autoload -U add-zsh-hook
+_jvmvj_cd_hook() {{
+    local located="$({bin} auto --quiet)"
+    if [[ -n "$located" ]]; then
+        export JAVA_HOME="$located"
+    fi
+}}
+add-zsh-hook chpwd _jvmvj_cd_hook
+"#
+    );
+}
+
 fn main() {
     let java_home_in = Command::new("/usr/libexec/java_home")
         .arg("-X")
@@ -162,7 +189,8 @@ fn main() {
 
     match args.get(1) {
         None => list_all(&jvms),
-        Some(spec) if spec == "auto" => {
+        Some(cmd) if cmd == "init" => display_zsh_init(),
+        Some(cmd) if cmd == "auto" => {
             let quiet = args
                 .iter()
                 .find(|arg| arg == &"-q" || arg == &"--quiet")
