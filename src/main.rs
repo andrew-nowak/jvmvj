@@ -31,10 +31,13 @@ impl Jvm {
     fn major_version(&self) -> u16 {
         let version = self.version.clone();
         let (major_version, rest) = version.split_once('.').unwrap_or_else(|| {
-            exit_with_err(&format!(
+            exit_with_err(
+                &format!(
                 "Version number {} of jvm {} should contain at least one period!",
                 self.version, self.home_path
-            ))
+            ),
+                false,
+            )
         });
 
         let major_version = match major_version {
@@ -42,16 +45,19 @@ impl Jvm {
                 exit_with_err(&format!(
                     "Version number {} of jvm {} should contain at least two periods when 1-prefixed!",
                     self.version, self.home_path
-                ))
+                ), false)
             }).0,
             otherwise => otherwise,
         };
 
         major_version.parse::<u16>().unwrap_or_else(|_| {
-            exit_with_err(&format!(
-                "Major version number {} of JVM {} should be numeric!",
-                major_version, self.home_path
-            ))
+            exit_with_err(
+                &format!(
+                    "Major version number {} of JVM {} should be numeric!",
+                    major_version, self.home_path
+                ),
+                false,
+            )
         })
     }
 
@@ -90,7 +96,8 @@ fn get_version_from_input(spec: &str) -> Option<u16> {
     }
 }
 
-fn switch_to(spec: &str, jvms: &[Jvm]) {
+fn switch_to(spec: &str, jvms: &[Jvm], quiet: bool) {
+    let old_java_home = env::var("JAVA_HOME").ok();
     if let Some(v) = get_version_from_input(spec) {
         let selection = jvms
             .iter()
@@ -103,29 +110,41 @@ fn switch_to(spec: &str, jvms: &[Jvm]) {
             });
 
         println!("{}", selection.home_path);
-        eprintln!("Activating Java {}", selection.name);
-    } else {
+        if ! quiet
+            || (old_java_home == None
+                || old_java_home != Some(selection.home_path.clone()))
+        {
+            eprintln!("Activating Java {}", selection.name);
+        }
+    } else if !quiet {
         panic!("Did not understand version spec {}", spec);
+    } else {
+        exit(0)
     }
 }
 
-fn find_from_file(dir: &Path) -> String {
+fn find_from_file(dir: &Path, quiet: bool) -> String {
     let jv_file = dir.join(".java-version");
     if fs::exists(jv_file.clone()).unwrap() {
         let contents = fs::read_to_string(jv_file).unwrap();
         contents.trim().to_string()
     } else if let Some(parent) = dir.parent() {
-        find_from_file(parent)
+        find_from_file(parent, quiet)
     } else {
         exit_with_err(
             "No .java_version file found in this directory or any parent!",
+            quiet,
         );
     }
 }
 
-fn exit_with_err(msg: &str) -> ! {
-    eprintln!("{}", msg);
-    exit(1)
+fn exit_with_err(msg: &str, quiet: bool) -> ! {
+    if quiet {
+        exit(0)
+    } else {
+        eprintln!("{}", msg);
+        exit(1)
+    }
 }
 
 fn main() {
@@ -143,14 +162,17 @@ fn main() {
 
     match args.get(1) {
         None => list_all(&jvms),
-        Some(spec) if spec == "use" => {
-            // TODO be quiet if "switching" to same jdk
+        Some(spec) if spec == "auto" => {
+            let quiet = args
+                .iter()
+                .find(|arg| arg == &"-q" || arg == &"--quiet")
+                .is_some();
             let here = Path::new(".")
                 .canonicalize()
                 .expect("?? Couldn't find the path to this directory? What?");
-            let spec = find_from_file(&here);
-            switch_to(&spec, &jvms)
+            let spec = find_from_file(&here, quiet);
+            switch_to(&spec, &jvms, quiet)
         }
-        Some(spec) => switch_to(spec, &jvms),
+        Some(spec) => switch_to(spec, &jvms, false),
     }
 }
