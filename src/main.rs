@@ -88,11 +88,42 @@ fn list_all(jvms: &[Jvm]) {
     println!("{}", table);
 }
 
-fn get_version_from_input(spec: &str) -> Option<u16> {
-    match spec.split_once('.') {
+#[derive(Debug)]
+struct V {
+    number: u16,
+    distro: Option<String>,
+}
+
+fn get_distro(spec: &str) -> Option<String> {
+    let dspec: String = spec.chars().take_while(|c| c.is_alphabetic()).collect();
+    if dspec.is_empty() {
+        None
+    } else {
+        Some(dspec)
+    }
+}
+
+fn get_version_from_input(spec: &str) -> Option<V> {
+    let distro = get_distro(spec);
+    let number = match spec
+        .chars()
+        .skip_while(|c| c.is_alphabetic() || *c == '-')
+        .collect::<String>()
+        .split_once('.')
+    {
         Some(("1", ver)) => ver.parse::<u16>().ok(),
         Some((ver, _)) => ver.parse::<u16>().ok(),
         _ => spec.parse::<u16>().ok(),
+    };
+    number.map(|n| V { distro, number: n })
+}
+
+fn distro_matches(v: &V, jvm: &Jvm) -> bool {
+    match &v.distro {
+        None => true,
+        Some(distro) => {
+            jvm.bundle_id.contains(distro) || jvm.home_path.contains(distro)
+        }
     }
 }
 
@@ -101,17 +132,17 @@ fn switch_to(spec: &str, jvms: &[Jvm], quiet: bool) {
     if let Some(v) = get_version_from_input(spec) {
         let selection = jvms
             .iter()
-            .find(|jvm| jvm.major_version() == v)
+            .find(|jvm| jvm.major_version() == v.number && distro_matches(&v, jvm))
             .unwrap_or_else(|| {
                 panic!(
-                    "You requested a JVM of version {}, but no such JVM is installed!",
+                    "You requested a JVM of version {:?}, but no such JVM is installed!",
                     v
                 )
             });
 
         println!("{}", selection.home_path);
         if !quiet
-            || (old_java_home == None
+            || (old_java_home.is_none()
                 || old_java_home != Some(selection.home_path.clone()))
         {
             eprintln!("Activating Java {}", selection.name);
@@ -123,13 +154,28 @@ fn switch_to(spec: &str, jvms: &[Jvm], quiet: bool) {
     }
 }
 
-fn find_from_file(dir: &Path, quiet: bool) -> String {
-    let jv_file = dir.join(".java-version");
-    if fs::exists(jv_file.clone()).unwrap() {
-        let contents = fs::read_to_string(jv_file).unwrap();
+fn find_version_string_from_tool_versions(path: &Path) -> Option<String> {
+    let contents = fs::read_to_string(path).ok()?;
+    let java_line = contents
+        .lines()
+        .map(|l| l.trim())
+        .find(|l| l.starts_with("java"))?;
+
+    Some(java_line.replace("java ", ""))
+}
+
+fn find_version_string_from_file(dir: &Path, quiet: bool) -> String {
+    let java_version_file = dir.join(".java-version");
+    let tool_version_file = dir.join(".tool-versions");
+    if fs::exists(java_version_file.clone()).unwrap() {
+        let contents = fs::read_to_string(java_version_file).unwrap();
         contents.trim().to_string()
+    } else if let Some(spec) =
+        find_version_string_from_tool_versions(&tool_version_file)
+    {
+        spec
     } else if let Some(parent) = dir.parent() {
-        find_from_file(parent, quiet)
+        find_version_string_from_file(parent, quiet)
     } else {
         exit_with_err(
             "No .java_version file found in this directory or any parent!",
@@ -191,14 +237,11 @@ fn main() {
         None => list_all(&jvms),
         Some(cmd) if cmd == "init" => display_zsh_init(),
         Some(cmd) if cmd == "auto" => {
-            let quiet = args
-                .iter()
-                .find(|arg| arg == &"-q" || arg == &"--quiet")
-                .is_some();
+            let quiet = args.iter().any(|arg| arg == "-q" || arg == "--quiet");
             let here = Path::new(".")
                 .canonicalize()
                 .expect("?? Couldn't find the path to this directory? What?");
-            let spec = find_from_file(&here, quiet);
+            let spec = find_version_string_from_file(&here, quiet);
             switch_to(&spec, &jvms, quiet)
         }
         Some(spec) => switch_to(spec, &jvms, false),
