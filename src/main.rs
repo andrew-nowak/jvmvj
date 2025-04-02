@@ -194,8 +194,8 @@ fn exit_with_err(msg: &str, quiet: bool) -> ! {
 }
 
 fn display_zsh_init() {
-    let binr = env::current_exe().unwrap();
-    let bin = binr.display();
+    let bin = env::current_exe().unwrap();
+    let bin = bin.display();
     println!(
         r#"
 jdk() {{
@@ -220,6 +220,33 @@ add-zsh-hook chpwd _jvmvj_cd_hook
     );
 }
 
+fn display_bash_init() {
+    let bin = env::current_exe().unwrap();
+    let bin = bin.display();
+    println!(
+        r#"
+jdk() {{
+    if [[ -n "$1" ]]; then
+        local located="$({bin} $1)"
+        if [[ -n "$located" ]]; then
+            export JAVA_HOME="$located"
+        fi
+    else
+        {bin}
+    fi
+}}
+_jvmvj_cd() {{
+    \cd "$@" || return $?
+    local located="$({bin} auto --quiet)"
+    if [[ -n "$located" ]]; then
+        export JAVA_HOME="$located"
+    fi
+}}
+alias cd=_jvmvj_cd
+"#
+    );
+}
+
 fn main() {
     let java_home_in = Command::new("/usr/libexec/java_home")
         .arg("-X")
@@ -233,10 +260,24 @@ fn main() {
 
     let args: Vec<String> = env::args().collect();
 
-    match args.get(1) {
-        None => list_all(&jvms),
-        Some(cmd) if cmd == "init" => display_zsh_init(),
-        Some(cmd) if cmd == "auto" => {
+    match (args.get(1), args.get(2)) {
+        (None, _) => list_all(&jvms),
+        (Some(cmd), Some(shell)) if cmd == "init" && shell == "zsh" => {
+            display_zsh_init()
+        }
+        (Some(cmd), Some(shell)) if cmd == "init" && shell == "bash" => {
+            display_bash_init()
+        }
+        (Some(cmd), None) if cmd == "init" && args.get(2).is_none() => {
+            eprintln!("You must specify which shell to init jvmvj for! Currently accepted shells are 'zsh' and 'bash'");
+            exit(1);
+        }
+
+        (Some(cmd), Some(shell)) if cmd == "init" => {
+            eprintln!("You asked to init jvmvj for shell {}, but it currently only supports zsh and bash.", shell);
+            exit(1);
+        }
+        (Some(cmd), _) if cmd == "auto" || cmd == "use" => {
             let quiet = args.iter().any(|arg| arg == "-q" || arg == "--quiet");
             let here = Path::new(".")
                 .canonicalize()
@@ -244,6 +285,6 @@ fn main() {
             let spec = find_version_string_from_file(&here, quiet);
             switch_to(&spec, &jvms, quiet)
         }
-        Some(spec) => switch_to(spec, &jvms, false),
+        (Some(spec), _) => switch_to(spec, &jvms, false),
     }
 }
