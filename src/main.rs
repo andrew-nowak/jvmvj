@@ -105,15 +105,14 @@ fn get_distro(spec: &str) -> Option<String> {
 
 fn get_version_from_input(spec: &str) -> Option<V> {
     let distro = get_distro(spec);
-    let number = match spec
+    let entire_number = spec
         .chars()
         .skip_while(|c| c.is_alphabetic() || *c == '-')
-        .collect::<String>()
-        .split_once('.')
-    {
+        .collect::<String>();
+    let number = match entire_number.split_once('.') {
         Some(("1", ver)) => ver.parse::<u16>().ok(),
         Some((ver, _)) => ver.parse::<u16>().ok(),
-        _ => spec.parse::<u16>().ok(),
+        _ => entire_number.parse::<u16>().ok(),
     };
     number.map(|n| V { distro, number: n })
 }
